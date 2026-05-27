@@ -24,6 +24,26 @@ streamlit run demo_app.py
 
 The app will open in your browser (typically http://localhost:8501).
 
+### 2a. Build a Small Real-Data Subset (Recommended)
+
+If you have the full `segmented_trips.csv` outside the repo, create a compact demo file:
+
+```bash
+python src/create_demo_subset.py --input "C:/path/to/segmented_trips.csv"
+```
+
+Default output:
+
+```text
+data/demo_trips_subset.csv
+```
+
+Optional tuning:
+
+```bash
+python src/create_demo_subset.py --input "C:/path/to/segmented_trips.csv" --trips 15 --min-pings 60
+```
+
 ### 3. Explore the Demo
 
 #### Controls (Left Sidebar)
@@ -105,7 +125,7 @@ The app detects stops using a simple heuristic:
 
 ## Data Overview
 
-**Dataset**: `data/segmented_trips.csv`
+**Dataset**: `data/demo_trips_subset.csv` (generated subset) or uploaded CSV
 - **Total rows**: 4,899,013 telemetry pings
 - **Unique trips**: 32,931
 - **Columns**: VIN, Timestamp, Latitude, Longitude, Speed, Weight_lbs, Device_Type, Source, trip_id
@@ -132,8 +152,9 @@ The app detects stops using a simple heuristic:
 
 **"Data not found" error**
 ```
-→ Ensure segmented_trips.csv exists in data/ directory
-→ If missing, run: python src/trip_segmentation.py
+→ Ensure demo_trips_subset.csv exists in data/ directory
+→ If missing, run: python src/create_demo_subset.py --input "C:/path/to/segmented_trips.csv"
+→ Or use Upload CSV mode in the sidebar
 ```
 
 **Slow animation**
@@ -192,15 +213,17 @@ For any point in the trip, the model:
 
 ```
 ├── demo_app.py                 # Main Streamlit app (run this!)
+├── DEMO_INSTRUCTIONS.md        # Demo usage guide
 ├── requirements.txt            # Includes streamlit, plotly, scipy
 ├── data/
-│   └── segmented_trips.csv    # 4.9M telemetry pings
+│   └── demo_trips_subset.csv  # Committed real-data subset for demo
 ├── models/
 │   ├── lgb_q10.pkl            # P10 quantile model
 │   ├── lgb_q50.pkl            # P50 median model
 │   ├── lgb_q90.pkl            # P90 quantile model
 │   └── baseline_hgb.pkl       # Baseline (not used in demo)
 └── src/
+  ├── create_demo_subset.py   # Builds compact demo CSV from full dataset
     ├── features.py             # Feature engineering pipeline
     └── eta_model.py            # Model training (reference)
 ```

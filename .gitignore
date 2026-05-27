@@ -23,6 +23,7 @@ htmlcov/
 
 # Data files
 *.csv
+!data/demo_trips_subset.csv
 
 # OS files
 .DS_Store

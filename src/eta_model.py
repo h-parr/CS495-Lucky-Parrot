@@ -358,7 +358,7 @@ def run_pipeline(input_csv: str | Path) -> None:
     if HAS_LGB:
         models: dict[float, lgb.LGBMRegressor] = {}
         for q in QUANTILES:
-            print(f"\nTraining LightGBM quantile α={q} …")
+            print(f"\nTraining LightGBM quantile a={q} ...")
             models[q] = train_lgb_quantile(X_train, y_train, X_val, y_val, alpha=q)
 
         p10 = models[0.1].predict(X_test)
@@ -531,16 +531,26 @@ def run_pipeline(input_csv: str | Path) -> None:
         p10_cal = p10 - qhat80
         p90_cal = p90 + qhat80
 
-        lgb_report = evaluate(y_test, p50, p10, p90)
-        lgb_report_scaled = evaluate(y_test, p50, p10_scaled, p90_scaled)
-        lgb_report_scaled90 = evaluate(y_test, p50, p10_scaled90, p90_scaled90)
-        lgb_report_scaled_target = evaluate(y_test, p50, p10_scaled_target, p90_scaled_target)
-        lgb_report_bucket = evaluate(y_test, p50, p10_bucket, p90_bucket)
-        lgb_report_cal = evaluate(y_test, p50, p10_cal, p90_cal)
+        lgb_report_raw = evaluate(y_test, p50, p10, p90)
         lgb_report_near_opt = evaluate(y_test, p50_near_opt, p10, p90)
+        lgb_candidates = [
+            ("raw P50", lgb_report_raw),
+            ("near-opt", lgb_report_near_opt),
+        ]
+        best_lgb_name, best_lgb_report = min(lgb_candidates, key=lambda x: x[1]["mae"])
+
+        lgb_report = best_lgb_report
+        lgb_report_scaled = evaluate(y_test, p50_near_opt, p10_scaled, p90_scaled)
+        lgb_report_scaled90 = evaluate(y_test, p50_near_opt, p10_scaled90, p90_scaled90)
+        lgb_report_scaled_target = evaluate(y_test, p50_near_opt, p10_scaled_target, p90_scaled_target)
+        lgb_report_bucket = evaluate(y_test, p50_near_opt, p10_bucket, p90_bucket)
+        lgb_report_cal = evaluate(y_test, p50_near_opt, p10_cal, p90_cal)
         print("\n── LightGBM Results ──")
         for k, v in lgb_report.items():
             print(f"  {k:<20} {v:.4f}")
+        print(f"  {'selected_variant':<20} {best_lgb_name}")
+        print(f"  {'raw_p50_mae':<20} {lgb_report_raw['mae']:.4f}")
+        print(f"  {'raw_p50_rmse':<20} {lgb_report_raw['rmse']:.4f}")
         print(f"  {'interval_scale_80':<20} {interval_scale_80:.4f}")
         print(f"  {'coverage_scaled_80':<20} {lgb_report_scaled['coverage_p10_p90']:.4f}")
         print(f"  {'interval_scale_90':<20} {interval_scale_90:.4f}")
@@ -566,7 +576,10 @@ def run_pipeline(input_csv: str | Path) -> None:
         print("\n── Model Comparison (MAE / RMSE in minutes) ──")
         print(f"  {'Naive speed':<22} MAE={naive_report['mae']:.2f}  RMSE={naive_report['rmse']:.2f}")
         print(f"  {'HGB baseline':<22} MAE={bl_report['mae']:.2f}  RMSE={bl_report['rmse']:.2f}")
-        print(f"  {'LightGBM P50':<22} MAE={lgb_report['mae']:.2f}  RMSE={lgb_report['rmse']:.2f}")
+        print(f"  {'LightGBM best variant':<22} MAE={lgb_report['mae']:.2f}  RMSE={lgb_report['rmse']:.2f}")
+        print(f"  {'Best variant name':<22} {best_lgb_name}")
+        print(f"  {'LightGBM deployed':<22} MAE={lgb_report_near_opt['mae']:.2f}  RMSE={lgb_report_near_opt['rmse']:.2f}")
+        print(f"  {'LightGBM raw P50':<22} MAE={lgb_report_raw['mae']:.2f}  RMSE={lgb_report_raw['rmse']:.2f}")
         print("\n── Near-Arrival Metrics (ETA <= 60 minutes) ──")
         print(
             f"  {'Naive speed':<22} "
@@ -579,9 +592,22 @@ def run_pipeline(input_csv: str | Path) -> None:
             f"Within10={bl_report['within_tolerance_rate'] * 100:.2f}%"
         )
         print(
-            f"  {'LightGBM P50':<22} "
+            f"  {'LightGBM best variant':<22} "
             f"NearMAE={lgb_report['near_arrival_mae']:.2f}  "
             f"Within10={lgb_report['within_tolerance_rate'] * 100:.2f}%"
+        )
+        print(
+            f"  {'Best variant name':<22} {best_lgb_name}"
+        )
+        print(
+            f"  {'LightGBM deployed':<22} "
+            f"NearMAE={lgb_report_near_opt['near_arrival_mae']:.2f}  "
+            f"Within10={lgb_report_near_opt['within_tolerance_rate'] * 100:.2f}%"
+        )
+        print(
+            f"  {'LightGBM raw P50':<22} "
+            f"NearMAE={lgb_report_raw['near_arrival_mae']:.2f}  "
+            f"Within10={lgb_report_raw['within_tolerance_rate'] * 100:.2f}%"
         )
         print(
             f"  {'LightGBM Near-Opt':<22} "
@@ -594,7 +620,10 @@ def run_pipeline(input_csv: str | Path) -> None:
         )
         print(f"  {'Near-arrival sample rows':<22} N={lgb_report['near_arrival_n']:.0f}")
         print(f"\n  MAE improvement vs naive speed: {improvement_vs_naive:.1f}%")
-        print(f"  MAE improvement vs HGB baseline: {improvement_vs_hgb:.1f}%")
+        if improvement_vs_hgb >= 0:
+            print(f"  MAE improvement vs HGB baseline: {improvement_vs_hgb:.1f}%")
+        else:
+            print(f"  MAE change vs HGB baseline: {abs(improvement_vs_hgb):.1f}% worse")
 
         # ── Persist ──
         MODEL_DIR.mkdir(parents=True, exist_ok=True)

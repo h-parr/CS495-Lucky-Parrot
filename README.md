@@ -9,6 +9,18 @@
 
 Using telematics to build a real-time model and streaming service to predict estimated time of arrival (ETA) and uncertainty.
 
+## Latest Performance Snapshot (May 20, 2026)
+
+From the latest full training run on `data/segmented_trips.csv`:
+
+- Naive speed: MAE 230.67, RMSE 1013.65
+- HGB baseline: MAE 27.75, RMSE 77.65
+- LightGBM best variant: MAE 26.52, RMSE 80.37
+- LightGBM raw P50: MAE 28.61, RMSE 102.92
+- Reported MAE improvement vs HGB baseline: 4.4%
+
+Important: when you run training (`python src/eta_model.py`), the reported "LightGBM best variant" is selected automatically as the LightGBM variant with the lowest MAE (currently choosing between raw P50 and near-opt). The improvement vs HGB in console output and in this README follows that same definition.
+
 # Objectives
 
 • ETA Model: Quantile regression (P10/P50/P90) to predict estimated time of arrival
@@ -128,8 +140,16 @@ The demo uses pre-trained LightGBM quantile regressors:
 ## Data Requirements
 
 The demo requires:
-- `data/segmented_trips.csv`: Pre-processed trip data with 4.9M telemetry pings
+- `data/demo_trips_subset.csv`: Small real-data subset for the Streamlit demo
 - `models/*.pkl`: Pre-trained model artifacts from `make train`
+
+If you only have the full dataset somewhere outside the repo, generate a demo-sized subset:
+
+```bash
+python src/create_demo_subset.py --input "C:/path/to/segmented_trips.csv"
+```
+
+This writes `data/demo_trips_subset.csv`, which is allowed by `.gitignore` and can be committed for demo use.
 
 # Development Workflow
 

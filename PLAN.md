@@ -11,7 +11,7 @@
 **Author:** Harri  
 **Course:** CS 495 — Capstone Project  
 **Date:** April 27, 2026  
-**Last Updated:** May 13, 2026
+**Last Updated:** May 26, 2026
 
 ### Description
 
@@ -241,16 +241,21 @@ raw telemetry CSV
 - [ ] Hyperparameter tuning with cross-validation (learning rate, depth, leaves)
 - [ ] Compare final model against all baselines on MAE, RMSE, and MAPE
 
-**Current results (first run — basic features only):**
+**Current preliminary results (latest full run):**
 
-| Model | MAE | RMSE | Notes |
-|---|---|---|---|
-| Naive speed (no training) | 227.7 min | 1002.3 min | Physics only |
-| HistGradientBoosting | 27.9 min | 78.5 min | Primary ML baseline |
-| LightGBM P50 | 28.3 min | 100.1 min | −1.4% vs HGB; +87.6% vs naive |
-| Coverage P10–P90 | 77.1% | — | Target ≥ 80% |
+| Model | MAE | RMSE | Improvement vs Naive | Improvement vs HGB | Notes |
+|---|---:|---:|---:|---:|---|
+| Naive speed (no training) | 230.67 min | 1013.65 min | — | — | Physics-only baseline |
+| HistGradientBoosting | 27.75 min | 77.65 min | 87.97% | — | Strong ML baseline |
+| LightGBM raw P50 | 28.61 min | 102.92 min | 87.60% | -3.10% | Raw quantile median |
+| LightGBM best variant (`near-opt`) | 26.52 min | 80.37 min | 88.49% | 4.44% | Best reported LightGBM path |
 
-Root cause of LightGBM underperforming HGB: objective mismatch (pinball vs squared error) on a minimal feature set. Load-state features (Phase 2b) are the primary unlock.
+| Additional interval metric | Value | Notes |
+|---|---:|---|
+| Coverage P10–P90 (raw) | 77.00% | Base LightGBM interval |
+| Coverage P10–P90 (calibrated) | 81.23% | Calibrated interval quality |
+
+The current takeaway is that the raw LightGBM median is slightly worse than HGB, but the optimized LightGBM `near-opt` path is better than HGB on overall MAE. Load-state features remain a major contributor to the stronger full-run result.
 
 ### Phase 4 — Evaluation 🔲
 - [ ] Compute MAE, RMSE, MAPE on P50 predictions
