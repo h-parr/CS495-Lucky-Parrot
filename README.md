@@ -9,7 +9,7 @@
 
 Using telematics to build a real-time model and streaming service to predict estimated time of arrival (ETA) and uncertainty.
 
-## Latest Performance Snapshot (May 20, 2026)
+## Latest Performance Snapshot (June 3, 2026)
 
 From the latest full training run on `data/segmented_trips.csv`:
 

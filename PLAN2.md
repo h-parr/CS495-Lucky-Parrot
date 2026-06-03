@@ -1,6 +1,6 @@
 # PLAN2.md
 
-## Real-Time Truck ETA Next Steps (as of 2026-05-13)
+## Real-Time Truck ETA Next Steps (as of 2026-06-03)
 
 This document focuses on the immediate next implementation steps after the current baseline pipeline.
 

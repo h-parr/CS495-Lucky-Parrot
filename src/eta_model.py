@@ -16,6 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupShuffleSplit
 
 try:
@@ -291,6 +292,44 @@ def apply_bucketed_interval_scales(
     return low, high
 
 
+# ── Ensemble Stacking ───────────────────────────────────────
+
+def train_ensemble_stacking(
+    naive_val: np.ndarray,
+    hgb_val: np.ndarray,
+    lgb_raw_val: np.ndarray,
+    lgb_opt_val: np.ndarray,
+    y_val: np.ndarray,
+    naive_test: np.ndarray,
+    hgb_test: np.ndarray,
+    lgb_raw_test: np.ndarray,
+    lgb_opt_test: np.ndarray,
+    y_test: np.ndarray,
+) -> tuple[Ridge, dict[str, float]]:
+    """Train a Ridge meta-model on base model predictions.
+
+    Meta-features: [naive_pred, hgb_pred, lgb_raw_p50, lgb_near_opt]
+    Target: true ETA (eta_remaining_min)
+
+    Returns:
+      - Trained Ridge meta-model
+      - Dictionary of evaluation metrics on test set
+    """
+    # Stack validation predictions as features
+    X_meta_val = np.column_stack([naive_val, hgb_val, lgb_raw_val, lgb_opt_val])
+    X_meta_test = np.column_stack([naive_test, hgb_test, lgb_raw_test, lgb_opt_test])
+
+    # Train Ridge meta-model with moderate regularization
+    meta_model = Ridge(alpha=1.0, random_state=RANDOM_STATE)
+    meta_model.fit(X_meta_val, y_val)
+
+    # Evaluate on test set
+    ensemble_pred = meta_model.predict(X_meta_test)
+    ensemble_report = evaluate(y_test, ensemble_pred)
+
+    return meta_model, ensemble_report
+
+
 # ── Pipeline ─────────────────────────────────────────────────
 
 def run_pipeline(input_csv: str | Path) -> None:
@@ -345,6 +384,7 @@ def run_pipeline(input_csv: str | Path) -> None:
     print("\nTraining HistGradientBoosting baseline …")
     baseline = train_baseline(X_train, y_train)
     bl_pred = baseline.predict(X_test)
+    bl_val = baseline.predict(X_val)
     bl_report = evaluate(y_test, bl_pred)
     print(f"  Baseline MAE:  {bl_report['mae']:.2f} min")
     print(f"  Baseline Near-Arrival MAE (ETA<=60): {bl_report['near_arrival_mae']:.2f} min")
@@ -478,6 +518,19 @@ def run_pipeline(input_csv: str | Path) -> None:
                     (1.0 - best_weight) * p50[near_mask_test] + best_weight * p50_near_test[near_mask_test]
                 )
 
+        # Train ensemble stacking meta-model before interval calibration
+        print("\nTraining ensemble stacking meta-model …")
+        ensemble_meta, ensemble_report = train_ensemble_stacking(
+            naive_val, bl_val, p50_val, p50_near_val,
+            y_val,
+            naive_pred, bl_pred, p50, p50_near_opt,
+            y_test,
+        )
+        print(f"  Ensemble MAE: {ensemble_report['mae']:.2f} min")
+        print(f"  Ensemble Near-Arrival MAE (ETA<=60): {ensemble_report['near_arrival_mae']:.2f} min")
+        print(f"  Ensemble Within 10 min rate (ETA<=60): {ensemble_report['within_tolerance_rate'] * 100:.2f}%")
+        print(f"  Ensemble RMSE: {ensemble_report['rmse']:.2f} min")
+
         # Calibrate interval width on validation set to target 80% coverage.
         p10_val = models[0.1].predict(X_val)
         p90_val = models[0.9].predict(X_val)
@@ -580,6 +633,7 @@ def run_pipeline(input_csv: str | Path) -> None:
         print(f"  {'Best variant name':<22} {best_lgb_name}")
         print(f"  {'LightGBM deployed':<22} MAE={lgb_report_near_opt['mae']:.2f}  RMSE={lgb_report_near_opt['rmse']:.2f}")
         print(f"  {'LightGBM raw P50':<22} MAE={lgb_report_raw['mae']:.2f}  RMSE={lgb_report_raw['rmse']:.2f}")
+        print(f"  {'Ensemble stacking':<22} MAE={ensemble_report['mae']:.2f}  RMSE={ensemble_report['rmse']:.2f}")
         print("\n── Near-Arrival Metrics (ETA <= 60 minutes) ──")
         print(
             f"  {'Naive speed':<22} "
@@ -615,6 +669,11 @@ def run_pipeline(input_csv: str | Path) -> None:
             f"Within10={lgb_report_near_opt['within_tolerance_rate'] * 100:.2f}%"
         )
         print(
+            f"  {'Ensemble stacking':<22} "
+            f"NearMAE={ensemble_report['near_arrival_mae']:.2f}  "
+            f"Within10={ensemble_report['within_tolerance_rate'] * 100:.2f}%"
+        )
+        print(
             f"  {'Near-Opt strategy':<22} "
             f"mode={best_mode}, th={best_threshold:.0f}, w={best_weight:.2f}"
         )
@@ -624,6 +683,11 @@ def run_pipeline(input_csv: str | Path) -> None:
             print(f"  MAE improvement vs HGB baseline: {improvement_vs_hgb:.1f}%")
         else:
             print(f"  MAE change vs HGB baseline: {abs(improvement_vs_hgb):.1f}% worse")
+        
+        ensemble_improvement_vs_hgb = (bl_report["mae"] - ensemble_report["mae"]) / bl_report["mae"] * 100
+        ensemble_improvement_vs_lgb = (lgb_report["mae"] - ensemble_report["mae"]) / lgb_report["mae"] * 100
+        print(f"  MAE improvement vs LightGBM best: {ensemble_improvement_vs_lgb:.1f}%" if ensemble_improvement_vs_lgb >= 0 else f"  MAE change vs LightGBM best: {abs(ensemble_improvement_vs_lgb):.1f}% worse")
+        print(f"  MAE improvement vs HGB baseline (ensemble): {ensemble_improvement_vs_hgb:.1f}%")
 
         # ── Persist ──
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -633,6 +697,8 @@ def run_pipeline(input_csv: str | Path) -> None:
             print(f"  Saved {out}")
         joblib.dump(baseline, MODEL_DIR / "baseline_hgb.pkl")
         print(f"  Saved {MODEL_DIR / 'baseline_hgb.pkl'}")
+        joblib.dump(ensemble_meta, MODEL_DIR / "ensemble_meta_ridge.pkl")
+        print(f"  Saved {MODEL_DIR / 'ensemble_meta_ridge.pkl'}")
     else:
         print("\nlightgbm not installed — skipping quantile models.")
         print("\n── Model Comparison (MAE / RMSE in minutes) ──")

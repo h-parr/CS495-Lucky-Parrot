@@ -11,7 +11,7 @@
 **Author:** Harri  
 **Course:** CS 495 — Capstone Project  
 **Date:** April 27, 2026  
-**Last Updated:** May 26, 2026
+**Last Updated:** June 3, 2026
 
 ### Description
 
@@ -227,7 +227,7 @@ raw telemetry CSV
 - [x] Evaluate load-state accuracy against known weight events and compare heuristic vs CPD methods (F1 and detection lag)
 - [x] Write unit tests for change point detection edge cases (flat signal, single ping, no weight data) — 35 tests passing
 
-### Phase 3 — Modeling �
+### Phase 3 — Modeling ✅
 - [x] Train/validation/test split (trip-level, not row-level, to prevent leakage)
 - [x] Implement naive speed baseline (dist_remaining / speed — no training required)
 - [x] Implement HistGradientBoostingRegressor primary baseline
@@ -403,4 +403,4 @@ ETA labels are derived from the data itself: the timestamp of the final ping of 
 
 ---
 
-*Last updated: 2026-05-13 — Final submission deadline: June 17, 2026*
+*Last updated: 2026-06-03 — Final submission deadline: June 17, 2026*
