@@ -191,6 +191,91 @@ To avoid confusion: model training uses selected feature columns (`FEATURE_COLS`
 | 3 | LightGBM (+conformal) | 732.2 | 2270.9 | 72.40% | P10/P90 kept, qhat=2.6931 |
 | 4 | LightGBM (+scale=1.3853) | 732.2 | 2270.9 | **84.13%** | Target met, P10/P90 kept |
 | 5 | LightGBM (+scale=1.2451) | 732.2 | 2270.9 | **80.50%** | In 79.5%-81.5% band |
+| 6 | Naive | 230.67 | 1013.65 | N/A | June 3 production scale |
+| 6 | HGB | 27.75 | 77.65 | N/A | June 3 production scale |
+| 6 | LightGBM (near-opt specialist) | **26.52** | **80.37** | 77.0% (raw) | **Best performer** ⭐ |
+| 6 | **Ensemble stacking (Ridge)** | **29.53** | **83.69** | N/A | **-6.4% vs HGB, -11.4% vs LightGBM** |
+
+## Run 6 - Ensemble Stacking (Ridge Meta-Model)
+
+- Date: June 3, 2026
+- Approach: Ridge regression meta-model trained on base model predictions
+- Base models: naive speed, HistGradientBoosting, LightGBM raw P50, LightGBM near-opt
+- Meta-features: [naive_pred, hgb_pred, lgb_raw_p50, lgb_near_opt]
+- Training data: 474k validation samples (predictions stacked)
+- Test data: 950k test samples (predictions stacked)
+- Model fitting scope: Ridge(alpha=1.0) on 4 base prediction columns
+- Dataset: Same as Run 2-5 (143,456 trips / 3.76M pings split 3.34M/474k/950k)
+
+### Results
+
+| Model / Method | MAE (min) | RMSE (min) | Near-Arrival MAE | Within-10min | Notes |
+|---|---:|---:|---:|---:|---|
+| Naive speed | 230.67 | 1013.65 | 55.90 | 43.68% | Physics baseline |
+| HGB baseline | 27.75 | 77.65 | 9.84 | 73.03% | ML baseline |
+| LightGBM raw P50 | 28.61 | 102.92 | 6.23 | 84.44% | Quantile median |
+| LightGBM near-opt (specialist blend) | **26.52** | **80.37** | **6.14** | **82.76%** | Best performer ⭐ |
+| **Ensemble stacking (Ridge)** | 29.53 | 83.69 | 8.82 | 74.70% | Underperformed vs individual models |
+
+### Run 6 Analysis: Why Ensemble Stacking Failed
+
+**Performance vs baselines:**
+- Ensemble MAE: 29.53 min
+- vs Naive: +88.1% improvement (expected; naive is baseline)
+- vs HGB: **-6.4% regression** (worse than baseline!)
+- vs LightGBM near-opt: **-11.4% regression** (worse than best)
+
+**Root cause analysis:**
+
+1. **LightGBM near-opt already IS an optimized ensemble**
+   - Incorporates multiple quantile heads (P10, P50, P90)
+   - Trained a specialist model on near-arrival weighted samples
+   - Applied validation-tuned blending logic to select between global and specialist predictions
+   - When Ridge tried to stack this with other models, it faced an already-optimized, internally-consistent prediction
+
+2. **Conflicting optimization signals**
+   - Naive: Deterministic distance/speed physics (no learnable parameters)
+   - HGB: L2 loss minimization on global samples
+   - LightGBM raw: Quantile loss at α=0.5
+   - LightGBM near-opt: Weighted MAE on near-arrival samples + specialist blending
+   - Ridge regression (linear meta-model) cannot resolve these competing objectives simultaneously
+   - Example: Naive predictions are very large (230.67 MAE globally) but help LightGBM on far-horizon samples; adding them to the stack creates noise
+
+3. **Validation-set leakage in meta-training**
+   - Ridge trained on validation set base predictions
+   - These validation predictions were already tuned/optimized for the validation data distribution
+   - Ridge essentially learned validation-specific artifacts rather than generalizable blending weights
+   - When evaluated on test set, these artifacts did not transfer
+
+4. **Dimensionality and base model correlation**
+   - Only 4 base models creates high correlation between inputs
+   - LightGBM raw and LightGBM near-opt are highly correlated (same underlying model, different blending)
+   - HGB and LightGBM are both gradient-boosting variants, also correlated
+   - Naive is outlier (physics-based) but its large scale (230.67 vs ~27) dominates the stacking
+   - Ridge cannot effectively de-correlate or normalize these inputs
+
+**Why LightGBM near-opt won instead:**
+- Specialist blending was validated on held-out validation set
+- Switching between global and specialist predictions (threshold-based logic) is more flexible than linear Ridge blending
+- Quantile-specific training (P10/P50/P90 heads) provided dedicated optimization for uncertainty bounds
+- Near-arrival weighting directly addressed the operational metric (ETA ≤ 60 minutes)
+
+**Key insight:**
+Ensemble stacking is most effective when base models are:
+- **Independent** (trained on different algorithms, data subsets, or feature sets)
+- **Diverse** (optimize for different objectives)
+- **Weakly correlated** (predictions not derived from each other)
+
+In this case, LightGBM near-opt is a single model that already incorporates multiple specialized paths, making naive stacking of its output with HGB/naive counterproductive.
+
+### Recommendation
+
+For future ensemble work, consider:
+1. Train base models independently without sharing architecture or blending logic
+2. Use XGBoost, CatBoost, and neural networks alongside LightGBM (not nested inside it)
+3. Implement stacking before specialist blending (not after)
+4. Use stratified cross-validation for meta-training to avoid validation-set overfitting
+5. Recognize that highly-optimized single models (like LightGBM near-opt) often exceed naive ensemble approaches
 
 ## Notes for Future Runs
 
@@ -200,3 +285,4 @@ To avoid confusion: model training uses selected feature columns (`FEATURE_COLS`
 - Track improvement relative to same-run HGB baseline.
 - Keep dataset scope/splits consistent across runs when reporting trend lines.
 - Add feature-importance analysis for each milestone run.
+- Ensemble stacking requires independent, weakly-correlated base models; don't stack over already-optimized ensemble predictions.

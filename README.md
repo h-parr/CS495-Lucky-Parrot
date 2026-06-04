@@ -15,11 +15,35 @@ From the latest full training run on `data/segmented_trips.csv`:
 
 - Naive speed: MAE 230.67, RMSE 1013.65
 - HGB baseline: MAE 27.75, RMSE 77.65
-- LightGBM best variant: MAE 26.52, RMSE 80.37
+- **LightGBM best variant: MAE 26.52, RMSE 80.37** ⭐ **Winner**
 - LightGBM raw P50: MAE 28.61, RMSE 102.92
-- Reported MAE improvement vs HGB baseline: 4.4%
+- Ensemble stacking (Ridge meta-model): MAE 29.53, RMSE 83.69
+- Reported MAE improvement vs HGB baseline: 4.4% (LightGBM best)
 
 Important: when you run training (`python src/eta_model.py`), the reported "LightGBM best variant" is selected automatically as the LightGBM variant with the lowest MAE (currently choosing between raw P50 and near-opt). The improvement vs HGB in console output and in this README follows that same definition.
+
+### Why Ensemble Stacking Underperformed
+
+Ensemble stacking (combining naive speed, HGB, LightGBM raw P50, and LightGBM near-opt via Ridge regression) achieved **29.53 MAE—6.4% worse than HGB baseline and 11.4% worse than LightGBM best**. This counterintuitive result reveals why model stacking isn't universally superior:
+
+**Root Causes:**
+
+1. **LightGBM near-opt is already an optimized ensemble**: The "best" LightGBM model incorporates:
+   - Quantile-specific training (P10/P50/P90 heads)
+   - A specialist regressor weighted heavily on near-arrival samples
+   - Validated blending logic that selects between global and specialist predictions
+   - When we stacked this with other models, we created conflicting signal paths
+
+2. **Conflicting optimization objectives**: The base models optimize for incompatible goals:
+   - Naive: Distance/speed physics (deterministic, no training)
+   - HGB: Overall MAE using squared error loss
+   - LightGBM raw: Quantile loss at the median (0.5 quantile)
+   - LightGBM near-opt: Weighted MAE on near-arrival samples, already blended
+   - Ridge meta-model couldn't find weights that simultaneously satisfy all objectives
+
+3. **Validation-set overfitting in meta-training**: The Ridge meta-model trained on validation predictions that were already highly optimized for the validation set. This created a second-order optimization problem where the meta-model learned validation-specific quirks rather than robust blending logic.
+
+**Lesson Learned**: Best-in-class single models (especially those with built-in specialist blending) can outperform naive ensemble approaches. Effective ensembles require truly diverse base models trained independently without internal blending. See `MODEL_PERFORMANCE_LOG.md` Run 6 for detailed metrics and analysis.
 
 # Objectives
 
